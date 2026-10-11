@@ -2,7 +2,7 @@ import Foundation
 import ArgumentParser
 
 // Thermal pressure is an OS policy signal, not a temperature measurement.
-enum Pressure: String, ExpressibleByArgument, CaseIterable {
+enum Pressure: String, ExpressibleByArgument, CaseIterable, Codable {
     case nominal, fair, serious, critical
     var rank: Int { Self.allCases.firstIndex(of: self)! }
     static var current: Pressure {

@@ -6,7 +6,7 @@
 <key>LSUIElement</key><true/>
 <key>CFBundleIdentifier</key><string>io.thermohop.cli</string>
 <key>CFBundleName</key><string>Thermohop</string>
-<key>CFBundleVersion</key><string>1</string>
-<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>CFBundleVersion</key><string>2</string>
+<key>CFBundleShortVersionString</key><string>0.2.0</string>
 <key>NSLocationUsageDescription</key><string>Thermohop needs Location permission to read Wi-Fi network names for explicit network selection.</string>
 </dict></plist>

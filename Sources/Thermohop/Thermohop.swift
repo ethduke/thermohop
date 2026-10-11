@@ -4,7 +4,7 @@ import ArgumentParser
 struct Thermohop: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "thermohop",
-        abstract: "macOS thermal pressure monitoring and explicit Wi-Fi profile switching.",
-        version: "0.1.0",
-        subcommands: [Thermal.self, WiFi.self, WiFiWorker.self])
+        abstract: "Agent-aware thermal safety, sleep prevention and verified Wi-Fi policy for macOS.",
+        version: "0.2.0",
+        subcommands: [Thermal.self, WiFi.self, Policy.self, Supervise.self, Awake.self, WiFiWorker.self])
 }

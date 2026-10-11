@@ -12,6 +12,8 @@ func diagnostic(_ text: String) {
     FileHandle.standardError.write(Data((text + "\n").utf8))
 }
 
+private let outputLock = NSLock()
+
 func emit(_ fields: [String: Any]) {
     var object = fields
     object["schemaVersion"] = 1
@@ -21,6 +23,8 @@ func emit(_ fields: [String: Any]) {
         diagnostic("Unable to encode output.")
         Darwin.exit(1)
     }
+    outputLock.lock()
+    defer { outputLock.unlock() }
     FileHandle.standardOutput.write(data)
     FileHandle.standardOutput.write(Data([10]))
 }
