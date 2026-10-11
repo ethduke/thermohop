@@ -13,44 +13,36 @@ struct WiFi: ParsableCommand {
 // CoreWLAN's synchronous calls have no cancellation API. Isolate them in a child
 // process so the caller's deadline is bounded even if a system service stalls.
 func worker(_ operation: String, options: WiFiOptions, ssid: String? = nil,
-            allowOpen: Bool = false, timeout: Double? = nil) throws -> [String: Any] {
+            allowOpen: Bool = false, timeout: Double? = nil, cancelled: (() -> Bool)? = nil) throws -> [String: Any] {
+    if cancelled?() == true { throw Failure(code: 130, message: "Wi-Fi operation cancelled.") }
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("thermohop-" + UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
         attributes: [.posixPermissions: 0o700])
     defer { try? FileManager.default.removeItem(at: directory) }
     let outputURL = directory.appendingPathComponent("result.json")
     FileManager.default.createFile(atPath: outputURL.path, contents: nil, attributes: [.posixPermissions: 0o600])
-    let output = try FileHandle(forWritingTo: outputURL)
-    defer { try? output.close() }
-    let process = Process()
-    guard let executable = Bundle.main.executableURL else { throw Failure(code: 1, message: "Unable to locate executable.") }
-    process.executableURL = executable
-    var arguments = ["wifi-worker", "--operation", operation]
+    let deadline = ProcessInfo.processInfo.systemUptime + (timeout ?? options.timeout)
+    var arguments = ["wifi-worker", "--operation", operation, "--result-path", outputURL.path,
+                     "--deadline-uptime", String(deadline)]
     if let name = options.interface { arguments += ["--interface", name] }
     if let ssid { arguments += ["--ssid", ssid] }
     if allowOpen { arguments.append("--allow-open") }
-    process.arguments = arguments
-    process.standardInput = FileHandle.nullDevice
-    process.standardOutput = output
-    process.standardError = FileHandle.nullDevice
-    try process.run()
-    let deadline = ProcessInfo.processInfo.systemUptime + (timeout ?? options.timeout)
-    while process.isRunning && ProcessInfo.processInfo.systemUptime < deadline { Thread.sleep(forTimeInterval: 0.02) }
-    if process.isRunning {
-        // SIGKILL avoids an unbounded wait during termination. The OS may already
-        // have begun an association; the caller must recheck status after timeout.
-        kill(process.processIdentifier, SIGKILL)
-        throw Failure(code: 5, message: "Wi-Fi operation timed out. If joining, check wifi status before retrying; macOS may have already begun association.")
+    let launch = try launchWiFiApplication(arguments: arguments, activate: operation == "permissionRequest")
+    defer { launch.stop() }
+    while cancelled?() != true && ProcessInfo.processInfo.systemUptime < deadline {
+        if launch.failed { throw Failure(code: 3, message: "Unable to launch the installed Wi-Fi worker through macOS. Run install.sh and retry.") }
+        if let data = try? Data(contentsOf: outputURL),
+           let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if result["event"] as? String == "error" {
+                throw Failure(code: (result["code"] as? NSNumber)?.int32Value ?? 1,
+                              message: result["message"] as? String ?? "Wi-Fi operation failed.")
+            }
+            return result.filter { $0.key != "schemaVersion" && $0.key != "timestamp" }
+        }
+        Thread.sleep(forTimeInterval: 0.02)
     }
-    let data = try Data(contentsOf: outputURL)
-    guard let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-        throw Failure(code: 1, message: "Wi-Fi worker returned no valid result.")
-    }
-    if process.terminationStatus != 0 {
-        throw Failure(code: (result["code"] as? NSNumber)?.int32Value ?? 1,
-                      message: result["message"] as? String ?? "Wi-Fi operation failed.")
-    }
-    return result.filter { $0.key != "schemaVersion" && $0.key != "timestamp" }
+    if cancelled?() == true { throw Failure(code: 130, message: "Wi-Fi operation cancelled; any association already started by macOS may still complete.") }
+    throw Failure(code: 5, message: "Wi-Fi operation timed out. If joining, check wifi status before retrying; macOS may have already begun association.")
 }
 
 struct WiFiStatus: ParsableCommand {
@@ -181,10 +173,18 @@ struct WiFiWorker: ParsableCommand {
     @Option var interface: String?
     @Option var ssid: String?
     @Flag var allowOpen = false
+    @Option var resultPath: String?
+    @Option var deadlineUptime: Double?
     func run() throws {
+        if let resultPath { try redirectWorkerOutput(resultPath) }
+        let remaining = deadlineUptime.map { $0 - ProcessInfo.processInfo.systemUptime } ?? 120
+        guard remaining.isFinite, remaining > 0, remaining <= 120 else {
+            try perform { throw Failure(code: 5, message: "Wi-Fi worker launch deadline expired or is invalid; no operation was started.") }
+            return
+        }
         // Also bound direct invocation of this internal command.
         let watchdog = DispatchSource.makeTimerSource(queue: .global())
-        watchdog.schedule(deadline: .now() + 120)
+        watchdog.schedule(deadline: .now() + remaining)
         watchdog.setEventHandler {
             diagnostic("Internal Wi-Fi worker deadline exceeded.")
             Darwin.exit(5)
@@ -194,6 +194,12 @@ struct WiFiWorker: ParsableCommand {
         try perform {
             // Resolve Location before asking CoreWLAN for potentially redacted names.
             let location = locationStatus()
+            if operation == "permissionStatus" {
+                emit(["event": "locationPermission", "location": location]); return
+            }
+            if operation == "permissionRequest" {
+                try requestLocation(timeout: max(0.01, remaining - 0.1)); return
+            }
             let iface = try interfaceFor(interface)
             switch operation {
             case "status":
@@ -207,7 +213,9 @@ struct WiFiWorker: ParsableCommand {
                 if powered && visibleSSID == nil {
                     result["diagnostic"] = location["initialized"] as? Bool == false
                         ? "Location authorization initialization timed out; permission and connection state are unknown."
-                        : "SSID unavailable: Location permission may be missing, or the interface may be unassociated."
+                        : (location["authorization"] as? String == "authorized"
+                            ? "Location access is authorized, but CoreWLAN returned no SSID. macOS may be withholding the name, the interface may be unassociated, or the query may have failed; connection state is unknown."
+                            : "SSID unavailable: Location access is not authorized; connection state is unknown.")
                     diagnostic("SSID unavailable; connection state is unknown.")
                 }
                 emit(result)

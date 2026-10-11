@@ -12,8 +12,10 @@ Requires macOS 13+ and Swift 5.9+. Supports macOS 15.6.1 on Apple silicon.
     swift build -c release
     .build/release/thermohop --help
 
-Commands below assume the executable is on PATH. Optional ./install.sh installs
-a CLI-only bundle in ~/Applications and a symlink in ~/.local/bin; no GUI.
+Run ./install.sh for live Wi-Fi and permission commands. It installs a CLI-only
+app bundle in ~/Applications and a symlink in ~/.local/bin; no GUI. Thermal
+commands also work directly from the build tree. Commands below assume that bin
+directory is on PATH.
 
 Agent workflow
 --------------
@@ -61,10 +63,15 @@ macOS requires Location access to reveal SSIDs:
     thermohop wifi permission request --timeout 30
 
 The request may show a system prompt. Enable Location Services in System Settings
-> Privacy & Security and allow Thermohop if listed. Try the installed CLI bundle
-if the standalone binary receives no prompt; authorization is not guaranteed and
-rebuilding may require it again. Missing access returns exit 4. A hidden SSID is
-reported as unknown connection state, never silently treated as disconnected.
+> Privacy & Security and allow Thermohop if listed. Wi-Fi workers and permission
+setup launch through macOS Launch Services using the registered app identity.
+A shell-spawned executable can report authorized while CoreWLAN checks a different
+identity and redacts SSIDs. The installed bundle is registered automatically;
+there is no persistent background service. Ad-hoc signing means replacing a build
+may require authorization again. Test permission status, wifi status and wifi scan
+without reinstalling between them; authorization alone does not prove SSID access.
+Missing access returns exit 4. An unavailable SSID is reported as unknown
+connection state, never silently treated as disconnected.
 Each process waits up to two seconds for Location's initial authorization callback
 before reading Wi-Fi names. location.initialized distinguishes a completed check
 from initialization timeout (authorization unknown); required access checks return
@@ -86,7 +93,9 @@ plain text. Exit codes: 0 success, 1 internal/filesystem, 2 invalid input/config
 3 Wi-Fi unavailable, 4 permission, 5 timeout, 6 no usable network/association
 failure, 7 Keychain failure, 10 thermal threshold, 64 argument syntax/validation.
 
-Wi-Fi --timeout is >0 and <=120 seconds. A timeout can leave association already
+Wi-Fi --timeout is >0 and <=120 seconds. Launch and operation share that deadline;
+the launched worker instance is terminated on timeout or cancellation. Results
+use a private temporary file; passwords never enter it or launch arguments. A timeout can leave association already
 started by macOS; recheck status before retrying. Join supports WPA2/WPA3 Personal;
 open networks need explicit join --allow-open and are excluded from fallback.
 Successful association does not prove Internet access. Background monitoring,

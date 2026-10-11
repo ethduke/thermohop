@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-# Install a CLI-only bundle with a stable privacy identity. No window or menu UI.
+# Install the app bundle used by Launch Services for Wi-Fi privacy identity.
 cd "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 swift build -c release
 bundle="${THERMOHOP_INSTALL_DIR:-$HOME/Applications}/Thermohop.app"

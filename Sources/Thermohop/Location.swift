@@ -64,9 +64,9 @@ struct PermissionStatus: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "status")
     func run() throws {
         try perform {
-            let state = locationStatus()
-            emit(["event": "locationPermission", "location": state])
-            guard state["initialized"] as? Bool == true else {
+            let state = try worker("permissionStatus", options: WiFiOptions.parse([]))
+            emit(state)
+            guard (state["location"] as? [String: Any])?["initialized"] as? Bool == true else {
                 throw Failure(code: 5, message: "Location authorization initialization timed out; permission is unknown.")
             }
         }
@@ -78,24 +78,29 @@ struct PermissionRequest: ParsableCommand {
     mutating func validate() throws { try validateSeconds(timeout, max: 120) }
     func run() throws {
         try perform {
-            let deadline = ProcessInfo.processInfo.systemUptime + timeout
-            let session = LocationSession.shared
-            guard session.waitForInitialization(timeout: min(2, timeout)) else {
-                throw Failure(code: 5, message: "Location authorization initialization timed out; no permission request was made.")
-            }
-            let manager = session.manager
-            guard CLLocationManager.locationServicesEnabled() else {
-                throw Failure(code: 4, message: "Enable Location Services in System Settings > Privacy & Security first.")
-            }
-            if manager.authorizationStatus == .notDetermined { manager.requestAlwaysAuthorization() }
-            while manager.authorizationStatus == .notDetermined && ProcessInfo.processInfo.systemUptime < deadline {
-                RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
-            }
-            let name = authorizationName(manager.authorizationStatus)
-            emit(["event": "locationPermission", "location": ["authorization": name, "servicesEnabled": true, "initialized": true]])
-            guard name == "authorized" else {
-                throw Failure(code: 4, message: "Location permission was not granted. Check System Settings > Privacy & Security > Location Services; a standalone CLI prompt may not appear on this system. See README.txt.")
-            }
+            var options = try WiFiOptions.parse([]); options.timeout = timeout
+            emit(try worker("permissionRequest", options: options))
         }
     }
+}
+
+func requestLocation(timeout: Double) throws {
+    let deadline = ProcessInfo.processInfo.systemUptime + timeout
+    let session = LocationSession.shared
+    guard session.waitForInitialization(timeout: min(2, timeout)) else {
+        throw Failure(code: 5, message: "Location authorization initialization timed out; no permission request was made.")
+    }
+    let manager = session.manager
+    guard CLLocationManager.locationServicesEnabled() else {
+        throw Failure(code: 4, message: "Enable Location Services in System Settings > Privacy & Security first.")
+    }
+    if manager.authorizationStatus == .notDetermined { manager.requestAlwaysAuthorization() }
+    while manager.authorizationStatus == .notDetermined && ProcessInfo.processInfo.systemUptime < deadline {
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+    }
+    let name = authorizationName(manager.authorizationStatus)
+    guard name == "authorized" else {
+        throw Failure(code: 4, message: "Location permission was not granted. Check System Settings > Privacy & Security > Location Services for Thermohop. See README.txt.")
+    }
+    emit(["event": "locationPermission", "location": ["authorization": name, "servicesEnabled": true, "initialized": true]])
 }
