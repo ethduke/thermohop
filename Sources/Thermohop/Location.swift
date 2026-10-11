@@ -12,13 +12,45 @@ func authorizationName(_ status: CLAuthorizationStatus) -> String {
     @unknown default: return "unknown"
     }
 }
-func locationStatus() -> [String: Any] {
+// Keep one manager alive per process. Authorization is only reliable after the
+// initial delegate callback has been delivered on this thread's run loop.
+final class LocationSession: NSObject, CLLocationManagerDelegate {
+    static let shared = LocationSession()
     let manager = CLLocationManager()
-    return ["authorization": authorizationName(manager.authorizationStatus),
-            "servicesEnabled": CLLocationManager.locationServicesEnabled()]
+    private(set) var initialized = false
+
+    private override init() {
+        super.init()
+        manager.delegate = self
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        initialized = true
+    }
+
+    func waitForInitialization(timeout: Double = 2) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while !initialized {
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            if remaining <= 0 { return false }
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: min(0.05, remaining)))
+        }
+        return true
+    }
+}
+
+func locationStatus() -> [String: Any] {
+    let session = LocationSession.shared
+    let initialized = session.waitForInitialization()
+    return ["authorization": initialized ? authorizationName(session.manager.authorizationStatus) : "unknown",
+            "servicesEnabled": CLLocationManager.locationServicesEnabled(),
+            "initialized": initialized]
 }
 func requireLocation() throws {
     let state = locationStatus()
+    guard state["initialized"] as? Bool == true else {
+        throw Failure(code: 5, message: "Location authorization initialization timed out; permission is unknown. Retry status before requesting access again.")
+    }
     guard state["servicesEnabled"] as? Bool == true,
           state["authorization"] as? String == "authorized" else {
         throw Failure(code: 4, message: "Wi-Fi names require Location access. Run wifi permission status; use wifi permission request for initial setup and check System Settings > Privacy & Security > Location Services.")
@@ -30,10 +62,15 @@ struct Permission: ParsableCommand {
 }
 struct PermissionStatus: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "status")
-    func run() { emit(["event": "locationPermission", "location": locationStatus()]) }
-}
-final class LocationDelegate: NSObject, CLLocationManagerDelegate {
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {}
+    func run() throws {
+        try perform {
+            let state = locationStatus()
+            emit(["event": "locationPermission", "location": state])
+            guard state["initialized"] as? Bool == true else {
+                throw Failure(code: 5, message: "Location authorization initialization timed out; permission is unknown.")
+            }
+        }
+    }
 }
 struct PermissionRequest: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "request", abstract: "Initial setup only: request Location access; may show a system prompt.")
@@ -41,20 +78,21 @@ struct PermissionRequest: ParsableCommand {
     mutating func validate() throws { try validateSeconds(timeout, max: 120) }
     func run() throws {
         try perform {
-            let manager = CLLocationManager()
-            let delegate = LocationDelegate()
-            manager.delegate = delegate
+            let deadline = ProcessInfo.processInfo.systemUptime + timeout
+            let session = LocationSession.shared
+            guard session.waitForInitialization(timeout: min(2, timeout)) else {
+                throw Failure(code: 5, message: "Location authorization initialization timed out; no permission request was made.")
+            }
+            let manager = session.manager
             guard CLLocationManager.locationServicesEnabled() else {
                 throw Failure(code: 4, message: "Enable Location Services in System Settings > Privacy & Security first.")
             }
             if manager.authorizationStatus == .notDetermined { manager.requestAlwaysAuthorization() }
-            let deadline = ProcessInfo.processInfo.systemUptime + timeout
             while manager.authorizationStatus == .notDetermined && ProcessInfo.processInfo.systemUptime < deadline {
                 RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
             }
-            withExtendedLifetime(delegate) {}
             let name = authorizationName(manager.authorizationStatus)
-            emit(["event": "locationPermission", "location": ["authorization": name, "servicesEnabled": true]])
+            emit(["event": "locationPermission", "location": ["authorization": name, "servicesEnabled": true, "initialized": true]])
             guard name == "authorized" else {
                 throw Failure(code: 4, message: "Location permission was not granted. Check System Settings > Privacy & Security > Location Services; a standalone CLI prompt may not appear on this system. See README.txt.")
             }

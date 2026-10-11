@@ -192,6 +192,8 @@ struct WiFiWorker: ParsableCommand {
         watchdog.resume()
         defer { watchdog.cancel() }
         try perform {
+            // Resolve Location before asking CoreWLAN for potentially redacted names.
+            let location = locationStatus()
             let iface = try interfaceFor(interface)
             switch operation {
             case "status":
@@ -201,9 +203,11 @@ struct WiFiWorker: ParsableCommand {
                 var result: [String: Any] = ["event": "wifiStatus", "interface": iface.interfaceName ?? "unknown",
                     "powerOn": powered, "ssidVisibility": visibility,
                     "connection": visibleSSID != nil ? "associated" : (powered ? "unknown" : "disconnected"),
-                    "location": locationStatus(), "ssid": visibleSSID.map { $0 as Any } ?? NSNull()]
+                    "location": location, "ssid": visibleSSID.map { $0 as Any } ?? NSNull()]
                 if powered && visibleSSID == nil {
-                    result["diagnostic"] = "SSID unavailable: Location permission may be missing, or the interface may be unassociated."
+                    result["diagnostic"] = location["initialized"] as? Bool == false
+                        ? "Location authorization initialization timed out; permission and connection state are unknown."
+                        : "SSID unavailable: Location permission may be missing, or the interface may be unassociated."
                     diagnostic("SSID unavailable; connection state is unknown.")
                 }
                 emit(result)
