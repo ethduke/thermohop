@@ -7,7 +7,7 @@ struct WiFi: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "wifi", abstract: "Inspect Wi-Fi, join explicitly, or select only configured profiles.",
         subcommands: [WiFiStatus.self, WiFiScan.self, WiFiSaved.self, WiFiJoin.self,
                       WiFiFallback.self, WiFiReturn.self, WiFiHotspot.self,
-                      Permission.self, Profiles.self, Credential.self])
+                      WiFiSetup.self, Permission.self, Profiles.self, Credential.self])
 }
 
 // CoreWLAN's synchronous calls have no cancellation API. Isolate them in a child

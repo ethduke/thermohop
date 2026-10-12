@@ -99,7 +99,7 @@ struct AgentPolicy: Codable {
 func mergedPolicy(_ supplied: [String: Any], defaults: [String: Any]) throws -> [String: Any] {
     var result = defaults
     for (key, value) in supplied {
-        guard let original = defaults[key] else { throw Failure(code: 2, message: "Unknown policy field: \(key).") }
+        guard let original = defaults[key] else { throw Failure(code: 2, message: "Unknown policy field; compare with policy defaults.") }
         if let nested = original as? [String: Any] {
             guard let object = value as? [String: Any] else { throw Failure(code: 2, message: "Policy section must be an object.") }
             result[key] = try mergedPolicy(object, defaults: nested)

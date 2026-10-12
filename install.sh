@@ -21,4 +21,4 @@ cp Info.plist "$bundle/Contents/Info.plist"
 touch "$bundle/Contents/Resources/thermohop-install-marker"
 codesign --force --sign - --identifier io.thermohop.cli "$bundle"
 ln -sf "$bundle/Contents/MacOS/thermohop" "$bin_dir/thermohop"
-printf '%s\n' "Installed CLI: $bin_dir/thermohop" 'Add that bin directory to PATH, then run thermohop wifi permission request for initial setup.'
+printf '%s\n' "Installed CLI: $bin_dir/thermohop" 'Add that bin directory to PATH, then run thermohop wifi permission request and thermohop wifi setup for initial setup.'

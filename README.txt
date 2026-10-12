@@ -9,6 +9,9 @@ Requires macOS 13+ and Swift 5.9+.
 Build and test
 --------------
     swift build -c release
+    python3 Tests/setup.py
+    python3 Tests/awake_setup.py
+    python3 Tests/privacy.py
     .build/release/thermohop policy defaults > policy.json
     .build/release/thermohop policy validate policy.json
     .build/release/thermohop supervise --policy policy.json --observe-only --duration 60
@@ -16,9 +19,12 @@ Build and test
 
 Observe-only creates no workload, signals, sleep assertions, privileged leases or
 network joins. Enabled Wi-Fi observation can still scan and contact your endpoints.
+Setup tests use disposable synthetic Keychain items and remove them afterward.
 Live Wi-Fi requires the installed app identity:
     ./install.sh
     thermohop wifi permission request --timeout 30
+    thermohop wifi setup
+    thermohop wifi setup --status
     thermohop wifi permission status
     thermohop wifi status
     thermohop wifi scan
@@ -30,6 +36,37 @@ report authorization while macOS redacts SSIDs. Replacing the ad-hoc signed buil
 may require authorization again. Verify status and scan without reinstalling in
 between. Hidden SSIDs mean unknown state, never evidence of disconnection.
 Routine supervision never opens permission or Keychain approval dialogs.
+
+Initial Wi-Fi setup asks for your router and phone hotspot SSIDs, then reads each
+password with terminal echo disabled. No shell function or password file is needed;
+passwords go directly to device-local macOS Keychain. Existing credentials are kept.
+The wizard saves only SSIDs, roles and priorities in profiles.json; it does not join
+networks or enable supervision. Turn on Personal Hotspot manually before scanning.
+Agents: run wifi setup --status to inspect credential metadata (stored/missing/
+unavailable) and credentialsReady; if setup is incomplete, ask the user to run wifi
+setup in their own terminal. Never request passwords in chat or drive the password
+prompt through an agent recorder. CredentialsReady does not verify Location access,
+network visibility or connectivity; check permission status, status and scan next.
+
+Permissions and authorizations
+------------------------------
+macOS permissions are granted during setup; action authorizations come from your
+command and policy, and optional permissions apply only to the enabled feature.
+
+- Location Services (required for Wi-Fi): Grant Thermohop access through wifi
+  permission request so macOS exposes SSIDs for status, scanning and verification.
+- Keychain access (required for secured automatic joins): Unlock/authorize
+  Thermohop's own items so it can store and retrieve Wi-Fi passwords locally.
+- Administrator access (optional closed-lid mode): Approve the separate GUI or sudo
+  installer so root watchdogs can change and safely restore system-wide sleep settings.
+- Workload control (command after --): Authorize the launched process group so
+  Thermohop can pause it on heat, resume after cooling and terminate it on shutdown.
+- Sleep prevention (awake.enabled): Enable this policy to keep eligible work awake
+  while thermal pressure is safe and release prevention at the configured cutoff.
+- Network switching (profiles plus wifi.enabled): Allowlist networks and enable
+  this policy so Thermohop can perform verified fallback and return joins.
+- Health probes (configured endpoints): Choose local/Internet destinations so
+  Thermohop can test the connectivity required to accept a network change.
 
 Agent and thermal policy
 ------------------------
@@ -99,9 +136,22 @@ it, otherwise unknown. Standard assertions do not override lid-close sleep.
 
 Optional closed-lid operation requires an explicitly installed privileged backend:
     swift build -c release
-    sudo ./scripts/install-awake-helper.py --user-id "$(id -u)"
+    ./scripts/install-awake-helper.py --plan
+    ./scripts/install-awake-helper.py --gui
 Then set awake.closedLid=true in the supervisor policy, or run:
     .build/release/thermohop awake watch --closed-lid --duration 300
+
+The GUI authorization message names Thermohop and explains the sleep-setting scope,
+thermal cutoff and persistent watchdog installation before asking for authentication;
+macOS may still show osascript as the requesting launcher. Installation creates
+/Library/Application Support/Thermohop and two io.thermohop.awake launchd jobs;
+it does not disable sleep until an eligible opted-in session requests it.
+For terminal-only installation, use sudo with --user-id "$(id -u)" instead of --gui.
+
+Administrator access is optional: ordinary idle-sleep prevention works with the lid
+open, and Apple's docked closed-lid setup uses an external display, power, keyboard
+and mouse (https://support.apple.com/en-us/102501). Thermohop's undocked closed-lid
+override uses the privileged backend described here.
 
 The separate installer is never run automatically. Two root-owned launchd watchdogs
 control the system-wide SleepDisabled setting. A 5-second lease binds to controller
@@ -112,7 +162,7 @@ second watchdog restores the owned setting if the main watchdog hangs. A confirm
 lease is required before proceeding; shutdown reports whether restoration was
 verified. A pre-existing foreign SleepDisabled setting is never claimed/reset.
 Avoid simultaneous apps changing that global setting. After stopping the session:
-    sudo ./scripts/install-awake-helper.py --remove
+    ./scripts/install-awake-helper.py --gui --remove
 
 Fan control is unavailable in this build; macOS handles fans automatically.
 Thermal reporting can lag physical heating. Restricted backpack airflow means this
@@ -120,6 +170,10 @@ is not a guarantee of safe closed-lid operation; do not rely on fans alone.
 
 Wi-Fi setup and reactions
 -------------------------
+    thermohop wifi setup
+    thermohop wifi setup --status
+
+For explicit profile management instead of the interactive wizard:
     thermohop wifi profiles add 'Example home' --role regular --priority 10
     thermohop wifi profiles add 'Example phone' --role hotspot
     thermohop wifi join 'Example home' --dry-run
@@ -130,11 +184,18 @@ Profiles are an explicit allowlist in ~/Library/Application Support/Thermohop/
 profiles.json; --config overrides it. Scanning never adds profiles automatically.
 Lower regular priority wins, then the single configured hotspot. Enable your phone
 hotspot manually: cellular fallback means joining its Wi-Fi, not managing a modem.
-Pipe a password manager's secret output into wifi credential set 'Example home'.
-Passwords stay in device-local Keychain; no password arguments/output or imported
-macOS Wi-Fi items. Set reads piped stdin with a 10-second limit. Authorize/unlock
+To replace one password locally, run wifi credential set 'Example home' --prompt.
+For unattended provisioning, pipe password-manager output into wifi credential set
+'Example home'. Never put passwords in JSON, .env, command arguments, shell history
+or Git. Passwords use unlocked, device-local Keychain items; no password output or
+imported macOS Wi-Fi items. Piped input has a 10-second limit. Authorize/unlock
 Keychain during setup. Automated joins support WPA2/WPA3 Personal; open networks
 need manual join --allow-open and are excluded from supervision.
+
+CLI and policy errors omit supplied values; supervisor events omit command arguments,
+environment values and workload output. Events still include SSIDs and some local
+paths: keep runtime logs and profiles private. Git ignores local configuration, logs,
+secret files and generated artifacts; commit source and synthetic tests only.
 
 wifi.enabled defaults to false. Explicitly choose requiredHealth: association,
 local or internet. Local/internet need probes, for example:

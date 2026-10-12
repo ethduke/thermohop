@@ -1,17 +1,64 @@
 #!/usr/bin/python3
 """Explicitly install/remove the optional privileged closed-lid watchdog."""
-import argparse, os, pathlib, plistlib, pwd, shutil, stat, subprocess, sys
+import argparse, json, os, pathlib, plistlib, pwd, shlex, shutil, stat, subprocess, sys
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--user-id', type=int)
 parser.add_argument('--remove', action='store_true')
+parser.add_argument('--gui', action='store_true', help='Show a descriptive macOS administrator prompt; run as your normal user.')
+parser.add_argument('--plan', action='store_true', help='Print exact changes and authorization wording as JSON without installing or requesting access.')
 args = parser.parse_args()
-if os.geteuid() != 0:
-    sys.exit('Run with sudo only when opting into the system-wide closed-lid backend.')
 base = pathlib.Path('/Library/Application Support/Thermohop')
 marker = base / 'awake-helper-install-marker'
 labels = ['io.thermohop.awake', 'io.thermohop.awake-backstop']
 plists = [pathlib.Path('/Library/LaunchDaemons') / (label + '.plist') for label in labels]
+install_prompt = (
+    'Thermohop: optional closed-lid support\n\n'
+    'Install two administrator watchdogs that can temporarily change this Mac\'s '
+    'sleep setting during an opt-in agent session.\n\n'
+    'They restore Thermohop\'s sleep setting at thermal level 2, agent exit, '
+    'controller failure or session end.\n\n'
+    'Installation alone does not disable sleep; the watchdogs remain installed until removed.'
+)
+remove_prompt = (
+    'Thermohop: remove closed-lid support\n\n'
+    'Stop and remove the two administrator watchdogs and their installed files.\n\n'
+    'Restore and verify any sleep-setting change owned by Thermohop before deleting the files.'
+)
+prompt = remove_prompt if args.remove else install_prompt
+if args.plan:
+    print(json.dumps({'schemaVersion': 1, 'action': 'remove' if args.remove else 'install',
+                     'requiresAdministrator': True, 'authorizationPrompt': prompt,
+                     'installationDirectory': str(base), 'launchDaemons': [str(p) for p in plists],
+                     'sleepSetting': 'SleepDisabled', 'installationChangesSleepSetting': False,
+                     'restoresOwnedSleepSettingOnRemoval': args.remove,
+                     'userID': args.user_id if args.user_id is not None else os.getuid()}, indent=2))
+    sys.exit(0)
+if args.gui:
+    if os.geteuid() == 0:
+        sys.exit('Run --gui as your normal user; administrator authentication stays in macOS.')
+    command = ['/usr/bin/python3', str(pathlib.Path(__file__).resolve())]
+    if args.remove:
+        command.append('--remove')
+    else:
+        uid = args.user_id if args.user_id is not None else os.getuid()
+        if uid <= 0:
+            parser.error('--user-id must identify a non-root user.')
+        try:
+            pwd.getpwuid(uid)
+        except KeyError:
+            parser.error('--user-id does not identify an existing user.')
+        command += ['--user-id', str(uid)]
+        if not (pathlib.Path(__file__).resolve().parent.parent / '.build/release/thermohop').is_file():
+            sys.exit('Build first as your normal user: swift build -c release')
+    # Pass data as argv; shell paths are quoted, and no password is read by Python.
+    script = ('on run argv\n'
+              'do shell script (item 1 of argv) with administrator privileges '
+              'with prompt (item 2 of argv)\n'
+              'end run')
+    sys.exit(subprocess.run(['/usr/bin/osascript', '-e', script, shlex.join(command), prompt]).returncode)
+if os.geteuid() != 0:
+    sys.exit('Use --gui for a descriptive administrator prompt, or sudo when opting into closed-lid support; --plan shows the exact changes first.')
 
 def checked_path(path):
     if path.is_symlink():

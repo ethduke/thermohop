@@ -2,3 +2,35 @@
 .swiftpm/
 .DS_Store
 *.xcodeproj/
+
+# Local secrets and private runtime configuration.
+.env
+.env.*
+*.pem
+*.key
+*.local.json
+*credentials*.json
+profiles.json
+/policy.json
+/policy.*.json
+/private/
+/local/
+
+# Logs, test results and generated artifacts.
+*.log
+*.log.*
+*.jsonl
+*.stderr
+*.stdout
+*.trace
+/metrics*.json
+logs/
+test-results/
+/work/
+/outputs/
+__pycache__/
+*.py[cod]
+*.app/
+*.dmg
+*.pkg
+*.zip
