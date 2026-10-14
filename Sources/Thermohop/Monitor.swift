@@ -33,7 +33,7 @@ private struct MonitorOutput {
     }
 
     func status(_ state: MonitorState, pressure: Pressure, agents: [AgentProcess],
-                lid: String, assertionHeld: Bool, policy: AwakePolicy) {
+                lid: String, assertionHeld: Bool, policy: AwakePolicy, showProcesses: Bool) {
         if json {
             emit(["event": "monitorStatus", "state": state.rawValue,
                   "thermalLevel": pressure.rank, "pressure": pressure.rawValue, "lid": lid,
@@ -50,6 +50,10 @@ private struct MonitorOutput {
                 line("Cooling at thermal level \(pressure.rank); sleep prevention released. Recovery requires \(Int(policy.resumeDelay)) continuous seconds at level \(policy.resumeAt.rank).")
             case .lidClosed:
                 line("Lid closed; sleep prevention released. Monitoring will continue after waking.")
+            }
+            if showProcesses && !agents.isEmpty {
+                for text in agentProcessLines(agents) { line(text) }
+                line("Task titles are unavailable; OS process state does not show model activity.")
             }
         }
     }
@@ -105,6 +109,7 @@ struct Monitor: ParsableCommand {
             let deadline = duration.map { started + $0 } ?? .infinity
             var rules = MonitorRules()
             var previous: String?
+            var previousAgents: [Int32]?
             var lastSample = Date()
             output.started(policy: policy, duration: duration)
             while !cancellation.cancelled && ProcessInfo.processInfo.systemUptime < deadline {
@@ -125,8 +130,10 @@ struct Monitor: ParsableCommand {
                 let snapshot = "\(state.rawValue):\(pressure.rawValue):\(lid):\(agents.map(\.pid))"
                 if previous != snapshot {
                     output.status(state, pressure: pressure, agents: agents, lid: lid,
-                                  assertionHeld: assertion.held, policy: policy)
+                                  assertionHeld: assertion.held, policy: policy,
+                                  showProcesses: previousAgents != agents.map(\.pid))
                     previous = snapshot
+                    previousAgents = agents.map(\.pid)
                 }
                 cancellation.wait(min(0.5, max(0, deadline - ProcessInfo.processInfo.systemUptime)))
             }

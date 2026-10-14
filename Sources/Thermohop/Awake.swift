@@ -4,12 +4,6 @@ import Darwin
 import IOKit
 import IOKit.pwr_mgt
 
-struct AgentProcess {
-    let pid: Int32
-    let name: String
-    var fields: [String: Any] { ["pid": pid, "name": name] }
-}
-
 enum AwakeDecision: String { case keepAwake, allowSleep, thermalCutoff }
 func awakeDecision(pressure: Pressure, agents: Int, cutoff: Pressure) -> AwakeDecision {
     if pressure.rank >= cutoff.rank { return .thermalCutoff }
@@ -40,7 +34,13 @@ func detectAgents(names: Set<String>, pids: Set<Int32>, uid: UInt32 = getuid()) 
         let labelLength = proc_name(pid, &label, UInt32(label.count))
         let name = labelLength > 0 ? String(cString: label) : executable
         if pids.contains(pid) || names.contains(executable) || names.contains(name) {
-            result.append(AgentProcess(pid: pid, name: names.contains(executable) ? executable : name))
+            let parentPID = Int32(info.pbi_ppid)
+            var parentLabel = [CChar](repeating: 0, count: 256)
+            let parentLength = parentPID > 0 ? proc_name(parentPID, &parentLabel, UInt32(parentLabel.count)) : 0
+            result.append(AgentProcess(pid: pid, name: names.contains(executable) ? executable : name,
+                state: AgentProcessState(bsdStatus: info.pbi_status),
+                parentPID: parentPID > 0 ? parentPID : nil,
+                parentName: parentLength > 0 ? String(cString: parentLabel) : nil))
         }
     }
     return result.sorted { $0.pid < $1.pid }
@@ -112,16 +112,23 @@ struct Awake: ParsableCommand {
         subcommands: [AwakeStatus.self, AwakeWatch.self, AwakeSimulate.self, AwakeDaemon.self, AwakeBackstop.self])
 }
 struct AwakeStatus: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "status")
+    static let configuration = CommandConfiguration(commandName: "status", abstract: "Show thermal/lid status and a numbered process list; use --json for scripts.")
     @OptionGroup var options: AwakeOptions
+    @Flag(help: "Emit structured JSON instead of the readable process list.") var json = false
     func run() throws {
-        try perform {
+        try perform(jsonOutput: json) {
             let agents = try detectAgents(names: Set(options.agent), pids: Set(options.pid))
             let pressure = Pressure.current
-            emit(["event": "awakeStatus", "agents": agents.map(\.fields), "detection": "processPresence",
-                  "pressure": pressure.rawValue, "thermalLevel": pressure.rank, "cutoff": options.cutoff.rawValue,
-                  "lid": lidState(), "eligible": !agents.isEmpty && pressure.rank < options.cutoff.rank,
-                  "assertionHeld": false, "closedLidOverride": "requiresOptInPrivilegedWatchdog", "fanControl": "unavailable"])
+            let lid = lidState()
+            if json {
+                emit(["event": "awakeStatus", "agents": agents.map(\.fields), "detection": "processPresence",
+                      "pressure": pressure.rawValue, "thermalLevel": pressure.rank, "cutoff": options.cutoff.rawValue,
+                      "lid": lid, "eligible": !agents.isEmpty && pressure.rank < options.cutoff.rank,
+                      "assertionHeld": false, "closedLidOverride": "requiresOptInPrivilegedWatchdog", "fanControl": "unavailable"])
+            } else {
+                let text = readableAwakeStatus(agents: agents, pressure: pressure, cutoff: options.cutoff, lid: lid)
+                FileHandle.standardOutput.write(Data((text + "\n").utf8))
+            }
         }
     }
 }

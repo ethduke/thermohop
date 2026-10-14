@@ -17,12 +17,15 @@ Level 2 releases prevention; 60 continuous seconds at level 0 permits recovery.
 This mode needs no policy file, Wi-Fi setup or administrator access and does not
 pause existing agents or override lid-close sleep. Use thermohop --json for JSONL,
 or --duration 300 for a timed session. Wi-Fi and closed-lid features are optional.
+thermohop awake status shows a numbered list with tool names, PIDs, OS states and
+parents; add --json for scripts. Actual task titles are not exposed by process metadata.
 
 Build and test
 --------------
     swift build -c release
     swift test
     python3 Tests/monitor.py
+    python3 Tests/status.py
     python3 Tests/setup.py
     python3 Tests/awake_setup.py
     python3 Tests/privacy.py

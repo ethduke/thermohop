@@ -115,7 +115,7 @@ finally:
 agent = subprocess.Popen(['/bin/sleep', '30'])
 process = start(['--json', '--agent', UNMATCHED, '--pid', str(agent.pid)])
 try:
-    status = subprocess.run([str(BINARY), 'awake', 'status', '--agent', UNMATCHED],
+    status = subprocess.run([str(BINARY), 'awake', 'status', '--json', '--agent', UNMATCHED],
                             capture_output=True, timeout=5)
     hardware = json.loads(status.stdout)
     if hardware['thermalLevel'] >= 2 or hardware['lid'] == 'closed':
