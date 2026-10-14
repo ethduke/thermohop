@@ -6,9 +6,23 @@ thermal pressure is safe, pauses its own workload on heat, and manages configure
 Wi-Fi fallback/return. JSONL explains decisions and outcomes. No model is embedded.
 Requires macOS 13+ and Swift 5.9+.
 
+Quick start: open lid
+--------------------
+Install once with ./install.sh and put ~/.local/bin on PATH, then run:
+    thermohop
+
+Readable status reports waiting, keeping awake or cooling until Ctrl+C. Known agent
+processes qualify for idle-sleep prevention; their presence does not prove active work.
+Level 2 releases prevention; 60 continuous seconds at level 0 permits recovery.
+This mode needs no policy file, Wi-Fi setup or administrator access and does not
+pause existing agents or override lid-close sleep. Use thermohop --json for JSONL,
+or --duration 300 for a timed session. Wi-Fi and closed-lid features are optional.
+
 Build and test
 --------------
     swift build -c release
+    swift test
+    python3 Tests/monitor.py
     python3 Tests/setup.py
     python3 Tests/awake_setup.py
     python3 Tests/privacy.py

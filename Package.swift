@@ -13,5 +13,6 @@ let package = Package(
         dependencies: [.product(name: "ArgumentParser", package: "swift-argument-parser")],
         linkerSettings: [.unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT",
             "-Xlinker", "__info_plist", "-Xlinker", root + "/Info.plist"])]
-    )]
+    ),
+    .testTarget(name: "ThermohopTests", dependencies: ["Thermohop"], path: "Tests/ThermohopTests")]
 )

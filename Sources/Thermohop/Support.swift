@@ -29,15 +29,15 @@ func emit(_ fields: [String: Any]) {
     FileHandle.standardOutput.write(Data([10]))
 }
 
-func perform(_ body: () throws -> Void) throws {
+func perform(jsonOutput: Bool = true, _ body: () throws -> Void) throws {
     do { try body() }
     catch let error as Failure {
-        emit(["event": "error", "code": error.code, "message": error.message])
+        if jsonOutput { emit(["event": "error", "code": error.code, "message": error.message]) }
         diagnostic(error.message)
         throw ExitCode(error.code)
     } catch {
         // Framework errors can contain personal identifiers; keep diagnostics generic.
-        emit(["event": "error", "code": 1, "message": "Operation failed."])
+        if jsonOutput { emit(["event": "error", "code": 1, "message": "Operation failed."]) }
         diagnostic("Operation failed.")
         throw ExitCode(1)
     }
