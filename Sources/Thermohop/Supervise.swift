@@ -4,15 +4,26 @@ import Darwin
 
 final class SupervisorLock {
     private var descriptor: Int32 = -1
-    init(name: String = "supervisor") throws {
+    init(name: String = "supervisor", mode: AwakeControllerMode = .supervisor) throws {
         let path = "/private/tmp/thermohop-\(name)-\(getuid()).lock"
         descriptor = open(path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { throw Failure(code: 8, message: "Unable to open supervisor lock.") }
         var info = stat()
         guard fstat(descriptor, &info) == 0, info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFREG,
+              info.st_nlink == 1, info.st_mode & 0o077 == 0,
               flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
             close(descriptor); descriptor = -1
             throw Failure(code: 8, message: "Another supervisor is running, or its lock is unavailable.")
+        }
+        do {
+            let data = try JSONEncoder().encode(SupervisorLockOwner(mode: mode))
+            guard ftruncate(descriptor, 0) == 0,
+                  data.withUnsafeBytes({ pwrite(descriptor, $0.baseAddress, $0.count, 0) }) == data.count else {
+                throw Failure(code: 8, message: "Unable to record supervisor identity.")
+            }
+        } catch {
+            close(descriptor); descriptor = -1
+            throw error
         }
     }
     deinit { if descriptor >= 0 { flock(descriptor, LOCK_UN); close(descriptor) } }

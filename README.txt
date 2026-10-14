@@ -19,6 +19,33 @@ pause existing agents or override lid-close sleep. Use thermohop --json for JSON
 or --duration 300 for a timed session. Wi-Fi and closed-lid features are optional.
 thermohop awake status shows a numbered list with tool names, PIDs, OS states and
 parents; add --json for scripts. Actual task titles are not exposed by process metadata.
+It also shows whether the monitor is running, paused or stopped and whether Thermohop
+currently prevents sleep, verified from macOS rather than inferred from detected agents.
+Project labels show only the working-folder name, never its full path; home/app folders
+and unavailable metadata show unknown. These are hints, especially for shared servers.
+
+This fictional snapshot shows agent processes and project folders with the monitor stopped and sleep prevention inactive.
+
+```text
+$ thermohop awake status
+Thermohop awake status
+Monitor: stopped
+Sleep prevention by Thermohop: inactive
+Thermal: normal (level 0; cutoff 2)
+Lid: open
+Detected agent processes: 10
+
+  1. Codex — PID 11001 — running / ready — parent: ChatGPT (PID 10000) — project folder: unknown
+  2. Codex — PID 11002 — running / ready — parent: ChatGPT (PID 10000) — project folder: unknown
+  3. Claude Code — PID 22010 — running / ready — parent: zsh shell (PID 22009) — project folder: demo-research
+  4. Claude Code — PID 22020 — running / ready — parent: zsh shell (PID 22019) — project folder: demo-research
+  5. Claude Code — PID 22030 — running / ready — parent: zsh shell (PID 22029) — project folder: sample-dashboard
+  6. Claude Code — PID 22040 — running / ready — parent: zsh shell (PID 22039) — project folder: sample-dashboard
+  7. Claude Code — PID 22050 — running / ready — parent: zsh shell (PID 22049) — project folder: demo-research
+  8. Claude Code — PID 22060 — running / ready — parent: zsh shell (PID 22059) — project folder: demo-research
+  9. Claude Code — PID 22070 — running / ready — parent: zsh shell (PID 22069) — project folder: example-cli
+  10. Claude Code — PID 22080 — running / ready — parent: zsh shell (PID 22079) — project folder: demo-research
+```
 
 Build and test
 --------------
@@ -26,6 +53,8 @@ Build and test
     swift test
     python3 Tests/monitor.py
     python3 Tests/status.py
+    python3 Tests/runtime.py
+    python3 Tests/projects.py
     python3 Tests/setup.py
     python3 Tests/awake_setup.py
     python3 Tests/privacy.py

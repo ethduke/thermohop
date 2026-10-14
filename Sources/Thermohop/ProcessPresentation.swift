@@ -52,12 +52,16 @@ struct AgentProcess {
     var state: AgentProcessState = .unknown
     var parentPID: Int32? = nil
     var parentName: String? = nil
+    var projectName: String? = nil
 
     var displayName: String { friendlyProcessName(name) }
+    var presentationKey: String { "\(pid):\(projectName.map { "name:" + $0 } ?? "unknown")" }
     var fields: [String: Any] {
         ["pid": pid, "name": name, "displayName": displayName, "state": state.rawValue,
          "parentPID": parentPID.map { $0 as Any } ?? NSNull(),
-         "parentName": parentName.map { safeProcessLabel($0) as Any } ?? NSNull()]
+         "parentName": parentName.map { safeProcessLabel($0) as Any } ?? NSNull(),
+         "projectName": projectName.map { $0 as Any } ?? NSNull(),
+         "projectSource": projectName.map { _ in "workingDirectory" as Any } ?? NSNull()]
     }
 }
 
@@ -69,11 +73,13 @@ func agentProcessLines(_ agents: [AgentProcess]) -> [String] {
             let label = agent.parentName.map(friendlyProcessName) ?? "unknown process"
             parent = "parent: \(label) (PID \(pid))"
         } else { parent = "parent unavailable" }
-        return "  \(index + 1). \(agent.displayName) — PID \(agent.pid) — \(agent.state.readable) — \(parent)"
+        let project = agent.projectName ?? "unknown"
+        return "  \(index + 1). \(agent.displayName) — PID \(agent.pid) — \(agent.state.readable) — \(parent) — project folder: \(project)"
     }
 }
 
-func readableAwakeStatus(agents: [AgentProcess], pressure: Pressure, cutoff: Pressure, lid: String) -> String {
+func readableAwakeStatus(agents: [AgentProcess], pressure: Pressure, cutoff: Pressure, lid: String,
+                         runtime: AwakeRuntimeStatus = AwakeRuntimeStatus()) -> String {
     let thermal: String
     switch pressure {
     case .nominal: thermal = "normal"
@@ -81,12 +87,11 @@ func readableAwakeStatus(agents: [AgentProcess], pressure: Pressure, cutoff: Pre
     case .serious: thermal = "high"
     case .critical: thermal = "critical"
     }
-    var lines = ["Thermohop awake status",
+    var lines = ["Thermohop awake status"] + runtime.readableLines + [
                  "Thermal: \(thermal) (level \(pressure.rank); cutoff \(cutoff.rank))",
                  "Lid: \(lid == "unknown" ? "unavailable" : lid)",
                  "Detected agent processes: \(agents.count)", ""]
     lines += agentProcessLines(agents)
-    lines += ["", "Task titles are unavailable; OS process state does not show model activity.",
-              "This status check creates no sleep assertion."]
+    lines += ["", "This status check creates no sleep assertion."]
     return lines.joined(separator: "\n")
 }

@@ -12,7 +12,7 @@ func awakeDecision(pressure: Pressure, agents: Int, cutoff: Pressure) -> AwakeDe
 
 // Match executable/process names, never full argument strings containing prompts
 // or secrets. Presence is a heuristic, not proof of an active inference request.
-func detectAgents(names: Set<String>, pids: Set<Int32>, uid: UInt32 = getuid()) throws -> [AgentProcess] {
+func detectAgents(names: Set<String>, pids: Set<Int32>, uid: UInt32 = getuid(), includeProjectNames: Bool = false) throws -> [AgentProcess] {
     let count = proc_listallpids(nil, 0)
     guard count > 0, count < 100_000 else {
         throw Failure(code: 1, message: "Unable to enumerate processes; sleep prevention is unavailable.")
@@ -23,6 +23,7 @@ func detectAgents(names: Set<String>, pids: Set<Int32>, uid: UInt32 = getuid()) 
         throw Failure(code: 1, message: "Process enumeration was incomplete; sleep prevention is unavailable.")
     }
     var result: [AgentProcess] = []
+    let homeDirectory = includeProjectNames ? FileManager.default.homeDirectoryForCurrentUser.path : ""
     for pid in all.prefix(Int(found)) where pid > 0 && pid != getpid() {
         var info = proc_bsdinfo()
         guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size)) == MemoryLayout<proc_bsdinfo>.size,
@@ -40,7 +41,8 @@ func detectAgents(names: Set<String>, pids: Set<Int32>, uid: UInt32 = getuid()) 
             result.append(AgentProcess(pid: pid, name: names.contains(executable) ? executable : name,
                 state: AgentProcessState(bsdStatus: info.pbi_status),
                 parentPID: parentPID > 0 ? parentPID : nil,
-                parentName: parentLength > 0 ? String(cString: parentLabel) : nil))
+                parentName: parentLength > 0 ? String(cString: parentLabel) : nil,
+                projectName: includeProjectNames ? processProjectName(pid, homeDirectory: homeDirectory) : nil))
         }
     }
     return result.sorted { $0.pid < $1.pid }
@@ -60,13 +62,14 @@ final class SleepAssertion {
     // The OS expires this lease even if sampling hangs. Process exit also
     // releases it; no persistent global power setting is changed.
     static let leaseSeconds: Double = 5
+    static let name = "Thermohop agent thermal guard"
     var held: Bool { id != nil }
     func acquire() throws {
         guard id == nil else { try renew(); return }
         var created: IOPMAssertionID = 0
         let properties: [String: Any] = [
             kIOPMAssertionTypeKey: kIOPMAssertionTypePreventUserIdleSystemSleep,
-            kIOPMAssertionNameKey: "Thermohop agent thermal guard",
+            kIOPMAssertionNameKey: Self.name,
             kIOPMAssertionLevelKey: kIOPMAssertionLevelOn,
             kIOPMAssertionTimeoutKey: Self.leaseSeconds,
             kIOPMAssertionTimeoutActionKey: kIOPMAssertionTimeoutActionRelease
@@ -112,21 +115,24 @@ struct Awake: ParsableCommand {
         subcommands: [AwakeStatus.self, AwakeWatch.self, AwakeSimulate.self, AwakeDaemon.self, AwakeBackstop.self])
 }
 struct AwakeStatus: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "status", abstract: "Show thermal/lid status and a numbered process list; use --json for scripts.")
+    static let configuration = CommandConfiguration(commandName: "status", abstract: "Show monitor and sleep-prevention state, thermal/lid status and agent processes.")
     @OptionGroup var options: AwakeOptions
     @Flag(help: "Emit structured JSON instead of the readable process list.") var json = false
     func run() throws {
         try perform(jsonOutput: json) {
-            let agents = try detectAgents(names: Set(options.agent), pids: Set(options.pid))
+            let agents = try detectAgents(names: Set(options.agent), pids: Set(options.pid), includeProjectNames: true)
             let pressure = Pressure.current
             let lid = lidState()
+            let runtime = awakeRuntimeStatus()
             if json {
-                emit(["event": "awakeStatus", "agents": agents.map(\.fields), "detection": "processPresence",
+                var fields: [String: Any] = ["event": "awakeStatus", "agents": agents.map(\.fields), "detection": "processPresence",
                       "pressure": pressure.rawValue, "thermalLevel": pressure.rank, "cutoff": options.cutoff.rawValue,
                       "lid": lid, "eligible": !agents.isEmpty && pressure.rank < options.cutoff.rank,
-                      "assertionHeld": false, "closedLidOverride": "requiresOptInPrivilegedWatchdog", "fanControl": "unavailable"])
+                      "closedLidOverride": "requiresOptInPrivilegedWatchdog", "fanControl": "unavailable"]
+                fields.merge(runtime.fields) { _, actual in actual }
+                emit(fields)
             } else {
-                let text = readableAwakeStatus(agents: agents, pressure: pressure, cutoff: options.cutoff, lid: lid)
+                let text = readableAwakeStatus(agents: agents, pressure: pressure, cutoff: options.cutoff, lid: lid, runtime: runtime)
                 FileHandle.standardOutput.write(Data((text + "\n").utf8))
             }
         }
@@ -143,7 +149,7 @@ struct AwakeWatch: ParsableCommand {
     func run() throws {
         var exitStatus: Int32 = 0
         try perform {
-            let lock = try SupervisorLock(name: "awake")
+            let lock = try SupervisorLock(name: "awake", mode: .awakeWatch)
             let cancellation = Cancellation()
             let assertion = SleepAssertion()
             let lidLease = closedLid && !observeOnly ? try ClosedLidLease() : nil

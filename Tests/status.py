@@ -40,7 +40,7 @@ try:
     arguments = ['--agent', UNMATCHED, '--pid', str(agent.pid)]
     text = run(arguments).decode()
     check('1. ' in text and f'PID {agent.pid}' in text and 'parent:' in text
-          and f'(PID {os.getpid()})' in text and 'Task titles are unavailable' in text,
+          and f'(PID {os.getpid()})' in text,
           'Readable status must number the process and identify its parent truthfully')
     status = json.loads(run(['--json', *arguments]))
     check(len(status['agents']) == 1 and status['agents'][0]['pid'] == agent.pid

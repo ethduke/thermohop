@@ -53,6 +53,7 @@ private struct MonitorOutput {
             }
             if showProcesses && !agents.isEmpty {
                 for text in agentProcessLines(agents) { line(text) }
+                line("Project labels are working-folder hints; shared agent servers may show unknown.")
                 line("Task titles are unavailable; OS process state does not show model activity.")
             }
         }
@@ -86,7 +87,7 @@ struct Monitor: ParsableCommand {
     func run() throws {
         var interrupted = false
         try perform(jsonOutput: json) {
-            let lock = try SupervisorLock(name: "awake")
+            let lock = try SupervisorLock(name: "awake", mode: .monitor)
             var assertion = SleepAssertion()
             defer { try? assertion.release(); withExtendedLifetime(lock) {} }
             let cancellation = Cancellation()
@@ -109,7 +110,7 @@ struct Monitor: ParsableCommand {
             let deadline = duration.map { started + $0 } ?? .infinity
             var rules = MonitorRules()
             var previous: String?
-            var previousAgents: [Int32]?
+            var previousAgents: [String]?
             var lastSample = Date()
             output.started(policy: policy, duration: duration)
             while !cancellation.cancelled && ProcessInfo.processInfo.systemUptime < deadline {
@@ -120,20 +121,21 @@ struct Monitor: ParsableCommand {
                     assertion = SleepAssertion()
                 }
                 lastSample = now
-                let agents = try detectAgents(names: Set(options.agent), pids: Set(options.pid))
+                let agents = try detectAgents(names: Set(options.agent), pids: Set(options.pid), includeProjectNames: true)
                 let lid = lidState()
                 let pressure = Pressure.current
                 let state = rules.state(time: ProcessInfo.processInfo.systemUptime - started,
                     pressure: pressure, agents: agents.count, lid: lid, policy: policy)
                 if state == .keepingAwake { try assertion.acquire() }
                 else { try assertion.release() }
-                let snapshot = "\(state.rawValue):\(pressure.rawValue):\(lid):\(agents.map(\.pid))"
+                let presentationKeys = agents.map(\.presentationKey)
+                let snapshot = "\(state.rawValue):\(pressure.rawValue):\(lid):\(presentationKeys)"
                 if previous != snapshot {
                     output.status(state, pressure: pressure, agents: agents, lid: lid,
                                   assertionHeld: assertion.held, policy: policy,
-                                  showProcesses: previousAgents != agents.map(\.pid))
+                                  showProcesses: previousAgents != presentationKeys)
                     previous = snapshot
-                    previousAgents = agents.map(\.pid)
+                    previousAgents = presentationKeys
                 }
                 cancellation.wait(min(0.5, max(0, deadline - ProcessInfo.processInfo.systemUptime)))
             }

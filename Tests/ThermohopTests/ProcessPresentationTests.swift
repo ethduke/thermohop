@@ -41,12 +41,11 @@ final class ProcessPresentationTests: XCTestCase {
         XCTAssertNil(agent.fields["task"])
     }
 
-    func testStatusMakesReadOnlyAndUnknownTaskScopeClear() {
+    func testStatusMakesReadOnlyScopeClear() {
         let text = readableAwakeStatus(agents: [], pressure: .nominal, cutoff: .serious, lid: "unknown")
         XCTAssertTrue(text.contains("Thermal: normal (level 0; cutoff 2)"))
         XCTAssertTrue(text.contains("Lid: unavailable"))
         XCTAssertTrue(text.contains("No recognized agent processes"))
-        XCTAssertTrue(text.contains("Task titles are unavailable"))
         XCTAssertTrue(text.contains("creates no sleep assertion"))
     }
 }
