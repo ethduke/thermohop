@@ -62,7 +62,7 @@ check(code == 0 and arguments[:2] == ['/usr/bin/osascript', '-e']
       and 'with prompt (item 2 of argv)' in arguments[2],
       'GUI must supply the descriptive native authorization prompt')
 check(shlex.split(arguments[3]) == ['/usr/bin/python3', str(INSTALLER), '--user-id', str(os.getuid())]
-      and 'Thermohop: optional closed-lid support' in arguments[4]
+      and 'Thermohop needs administrator access' in arguments[4]
       and 'password' not in arguments[2],
       'GUI must pass a quoted command and never handle an administrator password')
 script = arguments[2]
@@ -73,6 +73,18 @@ check(code == 0 and shlex.split(arguments[3]) == ['/usr/bin/python3', str(INSTAL
       'Removal must use separate wording and preserve the root restoration guard')
 code, _, _, run = invoke(['--gui', '--plan'])
 check(code == 0 and not run.called, 'A GUI plan must not display an authorization dialog')
+
+with tempfile.TemporaryDirectory(prefix='thermohop-bundled-helper-test-') as directory:
+    binary = pathlib.Path(directory) / "example tool's binary"
+    binary.write_bytes(b'synthetic executable fixture')
+    binary.chmod(0o755)
+    code, _, _, run = invoke(['--gui', '--binary', str(binary)])
+    arguments = run.call_args.args[0]
+    check(code == 0 and shlex.split(arguments[3])[-2:] == ['--binary', str(binary.resolve())],
+          'Bundled setup must quote explicit executable paths without needing a checkout')
+    binary.chmod(0o777)
+    code, _, _, run = invoke(['--gui', '--binary', str(binary)])
+    check(isinstance(code, str) and not run.called, 'Unsafe executable must be refused before authorization')
 
 with tempfile.TemporaryDirectory(prefix='thermohop-authorization-test-') as directory:
     compiled = pathlib.Path(directory) / 'authorization.scpt'

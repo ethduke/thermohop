@@ -6,6 +6,24 @@ thermal pressure is safe, pauses its own workload on heat, and manages configure
 Wi-Fi fallback/return. JSONL explains decisions and outcomes. No model is embedded.
 Requires macOS 13+ and Swift 5.9+.
 
+One-time full setup
+-------------------
+After ./install.sh, run thermohop setup in your local terminal: it creates
+policy.json with closed-lid support, thermal protection and Wi-Fi fallback/return,
+requests Location/admin authorization, installs the two watchdogs and stores hidden
+Wi-Fi passwords in Keychain. Enable your phone hotspot for the final network check.
+Then run thermohop supervise --policy policy.json; Ctrl+C stops the session.
+Stop an existing open-lid monitor before launching supervise.
+
+Agents: thermohop setup --status reports JSON readiness without dialogs, scans or
+network probes. Use setup --non-interactive to prepare policy/reuse credentials;
+add --authorize only after the user authorizes native Location/admin dialogs.
+Missing passwords require the user to run thermohop setup in their own terminal;
+never collect them through chat or an agent terminal recorder. Reruns preserve a
+valid existing full policy; --replace-policy explicitly resets it to the preset.
+Setup never starts supervision or joins networks, and the installed command needs
+no source checkout. --dry-run previews the preset without files or permissions.
+
 Quick start: open lid
 --------------------
 Install once with ./install.sh and put ~/.local/bin on PATH, then run:
@@ -56,6 +74,7 @@ Build and test
     python3 Tests/runtime.py
     python3 Tests/projects.py
     python3 Tests/setup.py
+    python3 Tests/full_setup.py
     python3 Tests/awake_setup.py
     python3 Tests/privacy.py
     .build/release/thermohop policy defaults > policy.json
@@ -199,7 +218,8 @@ open, and Apple's docked closed-lid setup uses an external display, power, keybo
 and mouse (https://support.apple.com/en-us/102501). Thermohop's undocked closed-lid
 override uses the privileged backend described here.
 
-The separate installer is never run automatically. Two root-owned launchd watchdogs
+Full setup invokes the bundled installer with explicit macOS administrator
+authorization. Two root-owned launchd watchdogs
 control the system-wide SleepDisabled setting. A 5-second lease binds to controller
 PID/start time; the main watchdog independently checks agent presence, thermal
 cutoff and lid availability. It journals ownership before changing the setting,

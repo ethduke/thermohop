@@ -7,18 +7,16 @@ parser.add_argument('--user-id', type=int)
 parser.add_argument('--remove', action='store_true')
 parser.add_argument('--gui', action='store_true', help='Show a descriptive macOS administrator prompt; run as your normal user.')
 parser.add_argument('--plan', action='store_true', help='Print exact changes and authorization wording as JSON without installing or requesting access.')
+parser.add_argument('--binary', type=pathlib.Path, help='Explicit Thermohop executable, used by the installed setup command.')
 args = parser.parse_args()
 base = pathlib.Path('/Library/Application Support/Thermohop')
 marker = base / 'awake-helper-install-marker'
 labels = ['io.thermohop.awake', 'io.thermohop.awake-backstop']
 plists = [pathlib.Path('/Library/LaunchDaemons') / (label + '.plist') for label in labels]
 install_prompt = (
-    'Thermohop: optional closed-lid support\n\n'
-    'Install two administrator watchdogs that can temporarily change this Mac\'s '
-    'sleep setting during an opt-in agent session.\n\n'
-    'They restore Thermohop\'s sleep setting at thermal level 2, agent exit, '
-    'controller failure or session end.\n\n'
-    'Installation alone does not disable sleep; the watchdogs remain installed until removed.'
+    'Thermohop needs administrator access to install two closed-lid safety helpers.\n\n'
+    'They restore system-wide sleep at thermal level 2 or session end '
+    'and remain installed until removed.'
 )
 remove_prompt = (
     'Thermohop: remove closed-lid support\n\n'
@@ -26,6 +24,21 @@ remove_prompt = (
     'Restore and verify any sleep-setting change owned by Thermohop before deleting the files.'
 )
 prompt = remove_prompt if args.remove else install_prompt
+
+def source_binary():
+    candidate = args.binary if args.binary is not None else pathlib.Path(__file__).resolve().parent.parent / '.build/release/thermohop'
+    try:
+        source = candidate.resolve(strict=True)
+        info = source.stat()
+    except OSError:
+        sys.exit('Thermohop executable unavailable; install or build it first.')
+    if not stat.S_ISREG(info.st_mode) or not info.st_mode & 0o111 or info.st_mode & 0o022:
+        sys.exit('Refusing an unsafe Thermohop executable; use an executable not writable by other users.')
+    expected_uid = args.user_id if args.user_id is not None else os.getuid()
+    if info.st_uid not in (0, expected_uid):
+        sys.exit('Refusing a Thermohop executable owned by another user.')
+    return source
+
 if args.plan:
     print(json.dumps({'schemaVersion': 1, 'action': 'remove' if args.remove else 'install',
                      'requiresAdministrator': True, 'authorizationPrompt': prompt,
@@ -49,8 +62,9 @@ if args.gui:
         except KeyError:
             parser.error('--user-id does not identify an existing user.')
         command += ['--user-id', str(uid)]
-        if not (pathlib.Path(__file__).resolve().parent.parent / '.build/release/thermohop').is_file():
-            sys.exit('Build first as your normal user: swift build -c release')
+        source_binary()
+        if args.binary is not None:
+            command += ['--binary', str(args.binary.resolve())]
     # Pass data as argv; shell paths are quoted, and no password is read by Python.
     script = ('on run argv\n'
               'do shell script (item 1 of argv) with administrator privileges '
@@ -94,9 +108,7 @@ if args.remove:
 if args.user_id is None or args.user_id <= 0:
     sys.exit('Pass --user-id with the non-root user who will run Thermohop.')
 user = pwd.getpwuid(args.user_id)
-source = pathlib.Path(__file__).resolve().parent.parent / '.build/release/thermohop'
-if not source.is_file():
-    sys.exit('Build first as your normal user: swift build -c release')
+source = source_binary()
 # Changing an existing installation while it owns the global bit is refused.
 if (base / 'awake-sleep-owned').exists():
     sys.exit('Stop the closed-lid session and wait for sleep restoration before updating the helper.')

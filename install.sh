@@ -18,7 +18,8 @@ fi
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources" "$bin_dir"
 cp .build/release/thermohop "$bundle/Contents/MacOS/thermohop"
 cp Info.plist "$bundle/Contents/Info.plist"
+cp scripts/install-awake-helper.py "$bundle/Contents/Resources/install-awake-helper.py"
 touch "$bundle/Contents/Resources/thermohop-install-marker"
 codesign --force --sign - --identifier io.thermohop.cli "$bundle"
 ln -sf "$bundle/Contents/MacOS/thermohop" "$bin_dir/thermohop"
-printf '%s\n' "Installed CLI: $bin_dir/thermohop" 'Add that bin directory to PATH, then run thermohop for open-lid monitoring; Ctrl+C stops it.' 'Wi-Fi is optional: run thermohop wifi permission request and thermohop wifi setup only when enabling Wi-Fi features.'
+printf '%s\n' "Installed CLI: $bin_dir/thermohop" 'Run thermohop for open-lid monitoring; Ctrl+C stops it.' 'Run thermohop setup once for optional closed-lid, thermal and Wi-Fi supervision.'
